@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.ipynb_checkpoints/
+
+# 运行产物(可再生, 不入库)
+figures/
+data/structures/
+data/slabH_structures/
+data/hea_h_stats*.csv
+
+# 模型权重(太大, 不入库; 见 README "Model weights")
+*.model
+
+# OS
+.DS_Store
+Thumbs.db

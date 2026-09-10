@@ -1,0 +1,6 @@
+mace-torch>=0.3.16
+ase>=3.29
+scikit-learn>=1.7
+numpy>=2.2
+pandas>=2.3
+matplotlib>=3.10
