@@ -29,7 +29,7 @@ The H adsorption energy `E_ads` is a key *binding-strength* descriptor behind ca
 - σ = std of `E_ads`: random forest reaches **R² = 0.68** (after filtering diverged relaxations).
 - **Configurational disorder homogenizes the surface**: pure metals have σ ≈ 0.28 eV, while five-component HEAs drop to σ ≈ 0.12 eV — a non-intuitive, publishable finding.
 - Valence electron concentration (VEC) is the strongest single-element descriptor; the strongest H binding (most negative μ) is Ru-rich, while the HER optimum (`ΔG_H* ≈ 0`, `E_ads ≈ −0.2 eV`) sits near Co/Ni-rich compositions.
-- **HER reachability**: under the ≥5%-per-element constraint, even the best-case (Cu-rich) composition reaches only μ ≈ −0.4 eV — still ~0.2 eV short of the thermoneutral optimum, because even 5% Ru/Fe over-binds H. Only relaxing toward pure Cu approaches thermoneutral (Fig 11).
+- **HER reachability**: under the ≥5%-per-element constraint, the best-case (Cu-rich, ΔSmix ≈ 8.5 J/(K·mol) — *medium-entropy*, not yet a true HEA) composition reaches only μ ≈ −0.4 eV, still ~0.2 eV short of the thermoneutral optimum. A true high-entropy alloy (ΔSmix ≳ 11) can only reach μ ≈ −0.5 eV — thermoneutral and high-entropy are in direct tension (Fig 11).
 - **Synthesizability**: all 20 quinary compositions pass δ ≤ 6.6%, Ω ≥ 1.1, and VEC ≥ 8 (FCC); 18/20 also pass 11 ≤ ΔSmix ≤ 19.5 J/(K·mol). The two failures are the most skewed compositions (e.g. `Ru66Ni14Co7Fe7Cu6`, ΔSmix = 9.1) — a binding-strength–formability trade-off: the strongest-binding (Ru-rich) compositions are also the least entropically stabilised.
 
 ## Repository layout

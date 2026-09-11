@@ -151,8 +151,16 @@ def reachability_figure(gp):
         if mf == MIN_FRAC:               # 记住 min-frac=MIN_FRAC 的整批采样, 供 (b) 直方图
             mu_minfrac, i_minfrac = mu, i
 
-    comp0 = close_comp[min_fracs.index(MIN_FRAC)]
+    idx0 = min_fracs.index(MIN_FRAC)
+    comp0 = close_comp[idx0]
     mu0, i0 = mu_minfrac, i_minfrac
+
+    # 每个"最近成分"的混合熵 ΔSmix (J/mol·K)。min-frac≥5% 只保证每元素都存在,
+    # 不保证高熵: 热中性方向是富 Cu(=低熵), 真高熵需 ΔSmix≳11(近等摩尔)。
+    def _dS(label):
+        x = parse_comp(label)
+        return -8.314 * sum(v * np.log(v) for v in x.values() if v > 0)
+    close_dS = [_dS(c) for c in close_comp]
 
     plt.rcParams.update({
         "font.family": "sans-serif",
@@ -165,25 +173,32 @@ def reachability_figure(gp):
     })
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(9.4, 4.0))
 
-    # (a) 最接近热中性的 μ vs min-frac
-    ax1.plot(min_fracs, close_mu, "o-", color="#4C72B0", lw=1.2, ms=5)
+    # (a) 最接近热中性的 μ vs min-frac; 阴影 min-frac<0.05 = 稀合金(非 HEA)
+    ax1.axvspan(0.0, MIN_FRAC, color="0.90", zorder=0)
+    ax1.text(MIN_FRAC / 2, 1.02, "dilute\n(non-HEA)", transform=ax1.get_xaxis_transform(),
+             fontsize=6, color="0.45", va="bottom", ha="center")
+    ax1.plot(min_fracs, close_mu, "o-", color="#4C72B0", lw=1.2, ms=5, zorder=3)
     ax1.axhline(MU_OPT, color="0.35", ls=":", lw=0.9)
     ax1.set_xlabel("min. per-element fraction  (min-frac)")
     ax1.set_ylabel("closest achievable  μ (eV)")
     ax1.set_title("(a) best-case μ vs min-frac")
-    for mf, mu, c in [(0.0, close_mu[0], close_comp[0]),
-                      (MIN_FRAC, mu0[i0], comp0)]:
-        ax1.annotate(f"{c}\nμ={mu:.2f}", (mf, mu), xytext=(6, 6),
-                     textcoords="offset points", fontsize=6, color="#4C72B0")
+    for k in (0, idx0, -1):   # 稀合金端点 / 实际约束 min-frac=0.05 / 等摩尔
+        ax1.annotate(f"{close_comp[k]}\nμ={close_mu[k]:.2f}, ΔS={close_dS[k]:.1f}",
+                     (min_fracs[k], close_mu[k]), xytext=(6, 6),
+                     textcoords="offset points", fontsize=5.5, color="#4C72B0")
+    ax1.text(0.02, 0.02, "min-frac ≥ 5% ⇒ every element present,\n"
+             "but true HEA still needs ΔSmix ≳ 11 (well-mixed)",
+             transform=ax1.transAxes, fontsize=6, va="bottom",
+             bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="0.8", lw=0.5))
 
     # (b) min-frac=0.05 的 μ 分布
     n, _bins, _patches = ax2.hist(mu0, bins=40, color="0.8", edgecolor="0.5", lw=0.3)
     ymax = float(n.max())
     ax2.axvline(MU_OPT, color="0.35", ls=":", lw=0.9)
     ax2.axvline(mu0[i0], color="#C44E52", ls="--", lw=0.9)
-    ax2.annotate(f"closest\n{comp0}\nμ={mu0[i0]:.2f}", (mu0[i0], ymax),
-                 xytext=(0, -6), textcoords="offset points", fontsize=6,
-                 color="#C44E52", ha="center", va="top")
+    ax2.annotate(f"closest\n{comp0}\nμ={mu0[i0]:.2f}, ΔS={close_dS[idx0]:.1f}",
+                 (mu0[i0], ymax), xytext=(0, -6), textcoords="offset points",
+                 fontsize=6, color="#C44E52", ha="center", va="top")
     ax2.text(MU_OPT - 0.01, ymax * 0.92, "ΔG$_H$*≈0", fontsize=6, color="0.3",
              rotation=90, va="top", ha="right")
     ax2.set_xlabel("predicted μ (eV)  at min-frac=0.05")
@@ -197,7 +212,10 @@ def reachability_figure(gp):
     plt.close(fig)
     print(f"图已保存 -> {out_png}")
     print(f"[Fig 11] min-frac={MIN_FRAC} 约束下最接近热中性的成分: {comp0} "
-          f"(μ={mu0[i0]:.3f} eV, 距 μ_opt 还差 {abs(mu0[i0] - MU_OPT):.3f} eV)")
+          f"(μ={mu0[i0]:.3f} eV, ΔS={close_dS[idx0]:.1f} J/mol·K, "
+          f"距 μ_opt 还差 {abs(mu0[i0] - MU_OPT):.3f} eV)")
+    print(f"[Fig 11] 注: 该成分 ΔS={close_dS[idx0]:.1f} < 11 J/mol·K, 属中熵合金而非高熵; "
+          f"真高熵(ΔSmix≳11)需 min-frac≳0.10, 代价是 μ 更负、离热中性更远。")
 
 
 def main():
