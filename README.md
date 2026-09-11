@@ -6,7 +6,7 @@ Machine-learning-guided screening of hydrogen adsorption on high-entropy-alloy (
 
 ## What this does
 
-The adsorption energy of H on an alloy surface is a key descriptor for catalytic (hydrogen evolution, hydrogenation) and hydrogen-storage activity. Enumerating every composition × arrangement × site is intractable for a 5-component HEA, so this workflow:
+The H adsorption energy `E_ads` is a key *binding-strength* descriptor behind catalytic activity (hydrogen evolution, hydrogenation) and hydrogen-storage uptake. Note that `E_ads` is **not** activity itself: for HER the activity descriptor is `ΔG_H* = E_ads + 0.24 eV`, and the volcano peak sits at `ΔG_H* ≈ 0` (`E_ads ≈ −0.2 eV`) — so the strongest binding (most negative `E_ads`) is *over-binding*, not optimal. Enumerating every composition × arrangement × site is intractable for a 5-component HEA, so this workflow:
 
 1. **Screens** H adsorption energies `E_ads` on the fcc(111) surface with a MACE-MP-0 machine-learning interatomic potential (fast, near-DFT accuracy for these systems), then
 2. **Learns a cheap surrogate** from the computed data — composition → {mean μ, spread σ} of `E_ads` — and uses **Gaussian-process active learning** to recommend the next composition to compute, closing the loop.
@@ -17,7 +17,7 @@ The adsorption energy of H on an alloy surface is a key descriptor for catalytic
 |---|--------|------|
 | 1 | `hea_screening.py` | Build slabs, relax, place H, and compute `E_ads = E(slab+H) − E(slab) − 0.5·E(H₂)` over a random quinary composition set |
 | 2 | `hea_mu_sigma_model.py` | Aggregate per-composition μ/σ and fit leave-one-composition-out surrogates (GP for μ, random forest for σ) |
-| 3 | `hea_gp_active_learning.py` | Fit a GP on computed compositions and recommend the next composition via lower-confidence-bound acquisition |
+| 3 | `hea_gp_active_learning.py` | Fit a GP on computed compositions and recommend the next composition — two objectives: strong-binding (LCB) and HER thermoneutral (closest to `ΔG_H* ≈ 0`) |
 | 4 | `hea_make_figures.py` | Reproduce the paper figures (Fig 1–8), including PCA / pentagon-simplex composition maps |
 | 5 | `hea_formability.py` | Compute synthesizability criteria δ / ΔSmix / Ω / VEC and the formability map (Fig 9) |
 
@@ -28,8 +28,8 @@ The adsorption energy of H on an alloy surface is a key descriptor for catalytic
 - μ = mean `E_ads`: leave-one-composition-out GP reaches **R² = 0.94**.
 - σ = std of `E_ads`: random forest reaches **R² = 0.68** (after filtering diverged relaxations).
 - **Configurational disorder homogenizes the surface**: pure metals have σ ≈ 0.28 eV, while five-component HEAs drop to σ ≈ 0.12 eV — a non-intuitive, publishable finding.
-- Valence electron concentration (VEC) is the strongest single-element descriptor; active learning naturally recommends Ru-rich compositions (most negative μ).
-- **Synthesizability**: all 20 quinary compositions pass δ ≤ 6.6%, Ω ≥ 1.1, and VEC ≥ 8 (FCC); 18/20 also pass 11 ≤ ΔSmix ≤ 19.5 J/(K·mol). The two failures are the most skewed compositions (e.g. `Ru66Ni14Co7Fe7Cu6`, ΔSmix = 9.1) — a direct activity–formability trade-off, since those same Ru-rich compositions are the most catalytically active.
+- Valence electron concentration (VEC) is the strongest single-element descriptor; the strongest H binding (most negative μ) is Ru-rich, while the HER optimum (`ΔG_H* ≈ 0`, `E_ads ≈ −0.2 eV`) sits near Co/Ni-rich compositions.
+- **Synthesizability**: all 20 quinary compositions pass δ ≤ 6.6%, Ω ≥ 1.1, and VEC ≥ 8 (FCC); 18/20 also pass 11 ≤ ΔSmix ≤ 19.5 J/(K·mol). The two failures are the most skewed compositions (e.g. `Ru66Ni14Co7Fe7Cu6`, ΔSmix = 9.1) — a binding-strength–formability trade-off: the strongest-binding (Ru-rich) compositions are also the least entropically stabilised.
 
 ## Repository layout
 
@@ -125,6 +125,7 @@ python hea_formability.py    # prints δ/ΔSmix/Ω/VEC + pass/fail, writes figur
 | `h_height`, `d_xy` | H height / lateral displacement |
 | `E_slab`, `E_slabH` | clean slab / slab+H energies (eV) |
 | `E_ads` | adsorption energy (eV) |
+| `dG_H` | H adsorption free energy approx `ΔG_H* ≈ E_ads + 0.24 eV` (HER volcano descriptor) |
 
 ## Synthesizability criteria
 
@@ -146,6 +147,7 @@ python hea_formability.py    # prints δ/ΔSmix/Ω/VEC + pass/fail, writes figur
 
 ## Caveats
 
+- **`E_ads` is binding strength, not activity.** The workflow screens `E_ads` (H adsorption energy). For HER, convert to `ΔG_H* = E_ads + 0.24 eV`; the volcano optimum is `ΔG_H* ≈ 0` (`E_ads ≈ −0.2 eV`), so the strongest-binding (most negative) compositions are *over-binding*. Part 3's thermoneutral objective targets this directly.
 - **Divergence filter**: relaxations occasionally collapse to unphysical `E_ads` (e.g. H falling into the slab, `E_ads` ≈ −12 eV). Parts 2–4 drop `E_ads` outside the physical window **[−2, +1] eV**.
 - **`REF_DFT` in `hea_make_figures.py`** (Fig 3) is a set of approximate literature values and **must be replaced with your own DFT/reference numbers** before publication.
 - **Rigid-slab approximation**: for H adsorption the slab is held fixed and only H is relaxed (relaxing the top metal layer with MACE-MP-0 can spuriously reconstruct the surface).
@@ -156,7 +158,7 @@ Fig 1–8 are generated by `hea_make_figures.py`, Fig 9–10 by `hea_formability
 
 ![Fig 9 — solid-solution formability map (δ–ΔSmix, coloured by Ω)](figures/fig9_formability.png)
 
-![Fig 10 — activity–formability trade-off](figures/fig10_activity_formability.png)
+![Fig 10 — H-binding strength vs formability](figures/fig10_binding_formability.png)
 
 ## Citation
 

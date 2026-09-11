@@ -53,6 +53,8 @@ R_GAS = 8.314                                   # J/(K·mol)
 EV_ATOM_TO_J_MOL = 96485.3
 DZ_THRESH = 0.01                                # eV/atom: |ΔHmix| 低于此视为"接近理想固溶体", Ω 不可靠
 E_LO, E_HI = -2.0, 1.0                          # E_ads 物理窗口(eV): 之外视为发散弛豫, 剔除
+DG_ZPE = 0.24                                   # eV: ΔG_H* ≈ E_ads + 0.24(Nørskov 约定)
+MU_OPT = -0.24                                  # eV: HER 热中性最优(ΔG_H*≈0 对应 E_ads≈-0.24)
 
 
 def parse_comp(label):
@@ -231,7 +233,8 @@ def make_figure(hea):
 
 
 def make_tradeoff_figure(hea):
-    """Fig 10: 活性(μ)–可合成性(ΔSmix)权衡。(a) Ω–Ru 含量; (b) μ–ΔSmix。"""
+    """Fig 10: H 结合强度(μ)–可合成性(ΔSmix)权衡。(a) Ω–Ru 含量; (b) μ–ΔSmix。
+    (b) 中虚线 μ=-0.24 eV 为 HER 热中性最优(ΔG_H*≈0), 富 Ru 强结合侧在其下 = 过结合。"""
     plt.rcParams.update({
         "font.family": "sans-serif",
         "font.sans-serif": ["Arial", "DejaVu Sans"],
@@ -243,7 +246,7 @@ def make_tradeoff_figure(hea):
     })
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(9.4, 4.0))
 
-    # (a) Ω_strict vs x_Ru, 颜色 = μ(活性)
+    # (a) Ω_strict vs x_Ru, 颜色 = μ(H 结合强度)
     sc1 = ax1.scatter(hea["x_Ru"], hea["Omega_strict"], c=hea["mu"],
                       s=60, zorder=3, cmap="viridis",
                       edgecolors="black", linewidths=0.5)
@@ -261,9 +264,14 @@ def make_tradeoff_figure(hea):
                       edgecolors="black", linewidths=0.5)
     ax2.axvline(11.0, color="0.4", ls="--", lw=0.8)
     ax2.axvline(19.5, color="0.4", ls="--", lw=0.8)
+    ax2.axhline(MU_OPT, color="0.35", ls=":", lw=0.9)
+    ax2.text(hea["dSmix"].max() - 0.4, MU_OPT + 0.03,
+             "ΔG$_H$* ≈ 0  (HER optimum)", fontsize=6, ha="right",
+             va="bottom", color="0.3")
     ax2.set_xlabel("Configurational entropy  ΔSmix (J·K$^{-1}$·mol$^{-1}$)")
     ax2.set_ylabel("μ = mean E_ads (eV)")
-    ax2.set_title("(b) activity–formability trade-off")
+    ax2.set_title("(b) H-binding strength vs formability")
+    ax2.set_ylim(top=-0.05)   # 保证 μ=-0.24 参考线(HER 热中性)可见
     cb2 = fig.colorbar(sc2, ax=ax2)
     cb2.set_label("x(Ru)")
 
@@ -283,7 +291,7 @@ def make_tradeoff_figure(hea):
 
     fig.tight_layout()
     os.makedirs(FIG_DIR, exist_ok=True)
-    out_png = os.path.join(FIG_DIR, "fig10_activity_formability.png")
+    out_png = os.path.join(FIG_DIR, "fig10_binding_formability.png")
     fig.savefig(out_png)
     print(f"图已保存 -> {out_png}")
 

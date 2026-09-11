@@ -76,6 +76,11 @@ MODEL_PATH = os.environ.get("MACE_MODEL_PATH", "2023-12-03-mace-128-L1_epoch-199
 DEVICE = "cuda"
 DEFAULT_DTYPE = "float64"
 
+# H 吸附自由能近似(Nørskov 约定): ΔG_H* ≈ E_ads + 0.24 eV(ZPE + 熵修正)。
+# 热中性 ΔG_H* = 0 对应 E_ads ≈ -0.24 eV, 即 HER 火山图顶点。
+# 注意: E_ads 是"结合强度"描述符, 不是活性本身; 最负 E_ads = 过结合, HER 反而差。
+DG_ZPE = 0.24                       # eV
+
 # ---- 输出 ----
 OUT_DIR = os.environ.get("HEA_DATA_DIR", os.path.join(os.path.dirname(os.path.abspath(__file__)), "data"))
 OUT_CSV = os.path.join(OUT_DIR, "hea_h_adsorption.csv")
@@ -444,7 +449,7 @@ def main():
     import csv
     header = ["comp", "comp_idx", "cfg", "site_idx", "site_type", "local_env",
               "act_site_type", "act_local_env", "h_height", "d_xy",
-              "E_slab", "E_slabH", "E_ads"]
+              "E_slab", "E_slabH", "E_ads", "dG_H"]
 
     # ---- 断点续跑: 读旧 CSV, 恢复已完成成分的行, 并跳过其 H 位点计算 -------
     done_comps = set()
@@ -526,7 +531,8 @@ def main():
                     write(os.path.join(dh, fname), sh, format="vasp", sort=True)
                 rows.append([label, ci, cfg, si, stype, env,
                              act_type, act_env, round(h_height, 3), round(d_xy, 3),
-                             round(E_slab, 4), round(E_sh, 4), round(E_ads, 4)])
+                             round(E_slab, 4), round(E_sh, 4), round(E_ads, 4),
+                             round(E_ads + DG_ZPE, 4)])
 
             print(f"  [{label}] 排列 {cfg + 1}/{N_CONFIGS} 完成 "
                   f"({time.time() - t_comp:.0f}s)")

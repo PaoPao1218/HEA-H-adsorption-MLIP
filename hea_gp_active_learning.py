@@ -1,11 +1,15 @@
 # -*- coding: utf-8 -*-
 """GP 主动学习闭环: 用已算成分的 μ 拟合 GP, 推荐"下一个该算的成分"。
 
-候选池 = 随机五元成分(Dirichlet(1) 均匀先验 + min-frac 拒绝), 排除已算成分;
-采集函数 LCB(lower confidence bound):  a(c) = μ̂(c) − κ·σ̂(c),
-即"预测最负吸附能 + 预测最不确定"的成分。κ 越大越偏探索。
+候选池 = 随机五元成分(Dirichlet(1) 均匀先验 + min-frac 拒绝), 排除已算成分。
+同一个 μ-GP 提供两个采集目标:
+  1) 强结合 / 氢储存 —— LCB(lower confidence bound): a(c) = μ̂(c) − κ·σ̂(c),
+     即"预测最负吸附能 + 预测最不确定", 适合找结合最强的成分。
+  2) HER 催化 —— 距热中性距离: a(c) = |μ̂(c) − μ_opt| − κ·σ̂(c),
+     μ_opt = -0.24 eV(ΔG_H* = E_ads + 0.24 eV ≈ 0 的火山顶点)。
+     注意: HER 活性最好的是"μ 最接近 -0.24 eV", 不是"最负"; 最负=过结合=脱附慢。
 
-输出 top-K 推荐(比例 + 预测 μ + GP 不确定度), 交给 MACE 去算那几条,
+输出两个目标的 top-K 推荐(比例 + 预测 μ + GP 不确定度), 交给 MACE 去算那几条,
 算完把新数据追加进 CSV 再重跑本脚本 → 闭环。
 
 说明: 这里 GP 只用"纯成分物性特征"(计算前即可得), 不含 ΔH; 若要引入 ΔH,
@@ -48,6 +52,11 @@ MIN_FRAC = 0.05       # 五元每元素最低摩尔分数(与主脚本一致)
 KAPPA = 2.0           # LCB 探索-开发权衡(越大越偏探索)
 TOP_K = 5             # 每次推荐几个
 SEED = 0
+
+# HER 热中性目标: ΔG_H* = E_ads + 0.24 eV ≈ 0 时活性最优(火山顶点)
+# 即 μ(E_ads) ≈ -0.24 eV 的成分 HER 活性最好, 而非"最负(结合最强)"。
+MU_OPT = -0.24        # eV
+DG_ZPE = 0.24         # eV, ΔG_H* ≈ E_ads + 0.24
 
 
 def parse_comp(label):
@@ -134,13 +143,24 @@ def main():
                        normalize_y=True, random_state=0))])
     gp.fit(X, y)
     mu, sd = gp.predict(Xc, return_std=True)
-    acq = mu - KAPPA * sd
-
+    acq = mu - KAPPA * sd                       # 强结合(最小化 μ)
     order = np.argsort(acq)
-    print(f"===== GP 主动学习 · 推荐下一个计算的成分(LCB, κ={KAPPA}) =====")
+
+    acq_her = np.abs(mu - MU_OPT) - KAPPA * sd  # HER 热中性(μ 越接近 MU_OPT 越好)
+    order_her = np.argsort(acq_her)
+
+    print(f"===== GP 主动学习 · 推荐下一个计算的成分 (κ={KAPPA}) =====")
+
+    print(f"\n[目标 1] 强结合 / 氢储存 —— 最小化 μ (LCB)")
     print(f"  {'#':>2}  {'成分':<26}{'预测 μ':>9}{'σ_GP':>8}{'LCB':>8}")
     for rank, i in enumerate(order[:TOP_K], 1):
         print(f"  {rank:>2}  {cand_labels[i]:<26}{mu[i]:>9.3f}{sd[i]:>8.3f}{acq[i]:>8.3f}")
+
+    print(f"\n[目标 2] HER 催化 —— μ 最接近热中性 {MU_OPT} eV (ΔG_H*≈0)")
+    print(f"  {'#':>2}  {'成分':<26}{'预测 μ':>9}{'ΔG_H*':>8}{'|μ-μ_opt|':>10}{'σ_GP':>8}")
+    for rank, i in enumerate(order_her[:TOP_K], 1):
+        print(f"  {rank:>2}  {cand_labels[i]:<26}{mu[i]:>9.3f}{mu[i] + DG_ZPE:>8.3f}"
+              f"{abs(mu[i] - MU_OPT):>10.3f}{sd[i]:>8.3f}")
 
     print("\n用法: 把上面成分加进主脚本的 comps 列表(或另起一批)用 MACE 算,",
           "算完把新行追加进 hea_h_adsorption.csv, 再重跑本脚本即为闭环迭代。")
