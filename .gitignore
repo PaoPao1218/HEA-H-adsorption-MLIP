@@ -5,7 +5,6 @@ __pycache__/
 .ipynb_checkpoints/
 
 # 运行产物(可再生, 不入库)
-figures/
 data/structures/
 data/slabH_structures/
 data/hea_h_stats*.csv

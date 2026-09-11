@@ -42,6 +42,7 @@ FIG_DIR = os.environ.get(
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "figures"))
 DH_CSV = os.path.join(DATA_DIR, "hea_formation_enthalpy.csv")
 REF_CSV = os.path.join(DATA_DIR, "hea_pure_reference.csv")
+ADS_CSV = os.path.join(DATA_DIR, "hea_h_adsorption.csv")
 
 ELEMENTS = ["Ru", "Ni", "Co", "Fe", "Cu"]
 RADII = {"Ru": 1.34, "Ni": 1.24, "Co": 1.25, "Fe": 1.26, "Cu": 1.28}   # 金属原子半径 Å
@@ -51,6 +52,7 @@ TMELT = {"Ru": 2607, "Ni": 1728, "Co": 1768, "Fe": 1811, "Cu": 1358}   # 熔点 
 R_GAS = 8.314                                   # J/(K·mol)
 EV_ATOM_TO_J_MOL = 96485.3
 DZ_THRESH = 0.01                                # eV/atom: |ΔHmix| 低于此视为"接近理想固溶体", Ω 不可靠
+E_LO, E_HI = -2.0, 1.0                          # E_ads 物理窗口(eV): 之外视为发散弛豫, 剔除
 
 
 def parse_comp(label):
@@ -78,6 +80,19 @@ def _omega(Tm, dS, dHmix_J):
     return Tm * dS / dHmix_J if dHmix_J > 1e-6 else np.inf
 
 
+def load_mu():
+    """读 hea_h_adsorption.csv, 按成分聚合 μ=mean(E_ads), 剔除发散弛豫 [-2,1] eV。"""
+    if not os.path.isfile(ADS_CSV):
+        return {}
+    ads = pd.read_csv(ADS_CSV, encoding="utf-8-sig")
+    mu = {}
+    for comp, s in ads.groupby("comp")["E_ads"]:
+        s = s[(s >= E_LO) & (s <= E_HI)]
+        if len(s):
+            mu[comp] = float(s.mean())
+    return mu
+
+
 def main():
     df = pd.read_csv(DH_CSV, encoding="utf-8-sig")
 
@@ -103,6 +118,7 @@ def main():
         is_pure = any(v > 0.99 for v in x.values())
         rows.append({
             "comp": r["comp"], "delta_%": delta, "dSmix": dS, "Tm": Tm, "VEC": vec,
+            "x_Ru": x["Ru"],
             "dH_proxy_J": dH_proxy_J, "dH_strict_J": dH_strict_J,
             "Omega_proxy": _omega(Tm, dS, dH_proxy_J),
             "Omega_strict": _omega(Tm, dS, dH_strict_J),
@@ -111,6 +127,7 @@ def main():
     out = pd.DataFrame(rows)
     # 纯金属无混合(ΔSmix=0), Ω 无意义 → 标 NaN
     out.loc[out["is_pure"], ["Omega_proxy", "Omega_strict"]] = np.nan
+    out["mu"] = out["comp"].map(load_mu())
 
     # 判据(δ / ΔSmix / VEC 用物理值, Ω 用严格口径)
     out["pass_delta"] = out["delta_%"] <= 6.6
@@ -152,6 +169,7 @@ def main():
               f"(接近理想固溶体), Ω_strict 发散、数值不可靠, 判据失去判别力。")
 
     make_figure(hea)
+    make_tradeoff_figure(hea)
 
 
 def make_figure(hea):
@@ -210,6 +228,64 @@ def make_figure(hea):
     out_png = os.path.join(FIG_DIR, "fig9_formability.png")
     fig.savefig(out_png)
     print(f"\n图已保存 -> {out_png}")
+
+
+def make_tradeoff_figure(hea):
+    """Fig 10: 活性(μ)–可合成性(ΔSmix)权衡。(a) Ω–Ru 含量; (b) μ–ΔSmix。"""
+    plt.rcParams.update({
+        "font.family": "sans-serif",
+        "font.sans-serif": ["Arial", "DejaVu Sans"],
+        "font.size": 8, "axes.labelsize": 9, "axes.titlesize": 9,
+        "xtick.labelsize": 8, "ytick.labelsize": 8,
+        "axes.spines.top": False, "axes.spines.right": False,
+        "axes.linewidth": 0.8, "figure.dpi": 300, "savefig.dpi": 300,
+        "savefig.bbox": "tight",
+    })
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(9.4, 4.0))
+
+    # (a) Ω_strict vs x_Ru, 颜色 = μ(活性)
+    sc1 = ax1.scatter(hea["x_Ru"], hea["Omega_strict"], c=hea["mu"],
+                      s=60, zorder=3, cmap="viridis",
+                      edgecolors="black", linewidths=0.5)
+    ax1.axhline(1.1, color="0.4", ls="--", lw=0.8)
+    ax1.set_yscale("log")
+    ax1.set_xlabel("Ru molar fraction  x(Ru)")
+    ax1.set_ylabel("Ω (strict, log scale)")
+    ax1.set_title("(a) Ω vs Ru content")
+    cb1 = fig.colorbar(sc1, ax=ax1)
+    cb1.set_label("μ = mean E_ads (eV)")
+
+    # (b) μ vs ΔSmix, 颜色 = x_Ru; 标出 ΔSmix 判据边界
+    sc2 = ax2.scatter(hea["dSmix"], hea["mu"], c=hea["x_Ru"],
+                      s=60, zorder=3, cmap="viridis",
+                      edgecolors="black", linewidths=0.5)
+    ax2.axvline(11.0, color="0.4", ls="--", lw=0.8)
+    ax2.axvline(19.5, color="0.4", ls="--", lw=0.8)
+    ax2.set_xlabel("Configurational entropy  ΔSmix (J·K$^{-1}$·mol$^{-1}$)")
+    ax2.set_ylabel("μ = mean E_ads (eV)")
+    ax2.set_title("(b) activity–formability trade-off")
+    cb2 = fig.colorbar(sc2, ax=ax2)
+    cb2.set_label("x(Ru)")
+
+    # 两个 ΔSmix 不过的成分用红圈 + 标注
+    fail = hea[~hea["all_pass"]]
+    for _, r in fail.iterrows():
+        ax1.scatter([r["x_Ru"]], [r["Omega_strict"]], s=130, facecolors="none",
+                    edgecolors="crimson", linewidths=1.4, zorder=4)
+        ax2.scatter([r["dSmix"]], [r["mu"]], s=130, facecolors="none",
+                    edgecolors="crimson", linewidths=1.4, zorder=4)
+        ax1.annotate(r["comp"], (r["x_Ru"], r["Omega_strict"]),
+                     xytext=(5, 5), textcoords="offset points",
+                     fontsize=6, color="crimson")
+        ax2.annotate(r["comp"], (r["dSmix"], r["mu"]),
+                     xytext=(5, 5), textcoords="offset points",
+                     fontsize=6, color="crimson")
+
+    fig.tight_layout()
+    os.makedirs(FIG_DIR, exist_ok=True)
+    out_png = os.path.join(FIG_DIR, "fig10_activity_formability.png")
+    fig.savefig(out_png)
+    print(f"图已保存 -> {out_png}")
 
 
 if __name__ == "__main__":
