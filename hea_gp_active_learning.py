@@ -126,7 +126,8 @@ def reachability_figure(gp):
     在可行域内搜索, 最接近热中性 μ_opt=-0.24 eV(ΔG_H*≈0)的成分能到多近?
     富 Ru/Fe 强结合元素即使只占 5% 也会把 μ 拽到过结合侧。
 
-    (a) 一系列 min-frac 下, 可行域内"最接近 μ_opt 的 μ"曲线;
+    (a) 一系列 min-frac 下, 可行域内"最接近 μ_opt 的 μ"曲线, 背景按
+        配置熵(熵下限 ΔS_min)分成低/中/高三区;
     (b) min-frac=MIN_FRAC 下 μ 的预测分布, 标出 μ_opt 与最近点。
     """
     rng = np.random.default_rng(1)
@@ -162,6 +163,21 @@ def reachability_figure(gp):
         return -8.314 * sum(v * np.log(v) for v in x.values() if v > 0)
     close_dS = [_dS(c) for c in close_comp]
 
+    # 把 min-frac 轴按"熵下限"分成低/中/高三区:
+    # 每元素≥mf 时最偏(熵最低)成分的熵 ΔS_min = -R[4mf·ln mf + (1-4mf)·ln(1-4mf)]。
+    # 边界取 0.69R(≈2 元素, 低→中)与 1.5R(Yeh 高熵阈值, 中→高);
+    # 严格 1.61R 在 5 元系统里只有等摩尔可达, 不实用。
+    R = 8.314
+    def _dS_floor(mf):
+        if mf <= 0:
+            return 0.0
+        return -R * (4 * mf * np.log(mf) + (1 - 4 * mf) * np.log(1 - 4 * mf))
+    S_LO, S_HI = 0.69 * R, 1.5 * R
+    mg = np.linspace(1e-4, 0.2, 4000)
+    sg = np.array([_dS_floor(m) for m in mg])
+    m_low = float(np.interp(S_LO, sg, mg))
+    m_high = float(np.interp(S_HI, sg, mg))
+
     plt.rcParams.update({
         "font.family": "sans-serif",
         "font.sans-serif": ["Arial", "DejaVu Sans"],
@@ -173,9 +189,17 @@ def reachability_figure(gp):
     })
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(9.4, 4.0))
 
-    # (a) 最接近热中性的 μ vs min-frac; 阴影 min-frac<0.05 = 稀合金(非 HEA)
-    ax1.axvspan(0.0, MIN_FRAC, color="0.90", zorder=0)
-    ax1.text(MIN_FRAC / 2, 1.02, "dilute\n(non-HEA)", transform=ax1.get_xaxis_transform(),
+    # (a) 最接近热中性的 μ vs min-frac; 背景按配置熵分成低/中/高三区
+    ax1.axvspan(0.0, m_low, color="#f4f8fd", zorder=0)
+    ax1.axvspan(m_low, m_high, color="#dcebf7", zorder=0)
+    ax1.axvspan(m_high, 0.20, color="#bcd7ef", zorder=0)
+    ax1.axvline(m_low, color="0.6", ls=":", lw=0.7)
+    ax1.axvline(m_high, color="0.6", ls=":", lw=0.7)
+    ax1.text(m_low / 2, 1.02, "低熵\nlow-ΔS", transform=ax1.get_xaxis_transform(),
+             fontsize=6, color="0.45", va="bottom", ha="center")
+    ax1.text((m_low + m_high) / 2, 1.02, "中熵\nmedium-ΔS", transform=ax1.get_xaxis_transform(),
+             fontsize=6, color="0.45", va="bottom", ha="center")
+    ax1.text((m_high + 0.20) / 2, 1.02, "高熵\nhigh-ΔS", transform=ax1.get_xaxis_transform(),
              fontsize=6, color="0.45", va="bottom", ha="center")
     ax1.plot(min_fracs, close_mu, "o-", color="#4C72B0", lw=1.2, ms=5, zorder=3)
     ax1.axhline(MU_OPT, color="0.35", ls=":", lw=0.9)
@@ -186,8 +210,8 @@ def reachability_figure(gp):
         ax1.annotate(f"{close_comp[k]}\nμ={close_mu[k]:.2f}, ΔS={close_dS[k]:.1f}",
                      (min_fracs[k], close_mu[k]), xytext=(6, 6),
                      textcoords="offset points", fontsize=5.5, color="#4C72B0")
-    ax1.text(0.02, 0.02, "min-frac ≥ 5% ⇒ every element present,\n"
-             "but true HEA still needs ΔSmix ≳ 11 (well-mixed)",
+    ax1.text(0.02, 0.02, "低熵 ΔSmix<0.69R  ·  中熵 0.69R–1.5R  ·  高熵 ≥1.5R\n"
+             "(按熵下限 ΔS_min(mf); 热中性方向富 Cu = 低熵)",
              transform=ax1.transAxes, fontsize=6, va="bottom",
              bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="0.8", lw=0.5))
 
