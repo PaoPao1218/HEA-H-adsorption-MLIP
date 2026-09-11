@@ -33,10 +33,15 @@ from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import RBF, WhiteKernel, ConstantKernel as C
 from sklearn.pipeline import Pipeline
 
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+
 warnings.filterwarnings("ignore")
 
 OUT_DIR = os.environ.get("HEA_DATA_DIR", os.path.join(os.path.dirname(os.path.abspath(__file__)), "data"))
 CSV = os.path.join(OUT_DIR, "hea_h_adsorption.csv")
+FIG_DIR = os.environ.get("HEA_FIG_DIR", os.path.join(os.path.dirname(os.path.abspath(__file__)), "figures"))
 
 ELEMENTS = ["Ru", "Ni", "Co", "Fe", "Cu"]
 PROPS = {
@@ -114,6 +119,87 @@ def _clean(comp, s):
     return s[~bad]
 
 
+def reachability_figure(gp):
+    """Fig 11: "min-frac 约束下能否逼近 HER 热中性"分析。
+
+    主脚本五元成分每个元素占比 ≥ MIN_FRAC(=0.05)。问题: 在这个约束下, 用 μ-GP
+    在可行域内搜索, 最接近热中性 μ_opt=-0.24 eV(ΔG_H*≈0)的成分能到多近?
+    富 Ru/Fe 强结合元素即使只占 5% 也会把 μ 拽到过结合侧。
+
+    (a) 一系列 min-frac 下, 可行域内"最接近 μ_opt 的 μ"曲线;
+    (b) min-frac=MIN_FRAC 下 μ 的预测分布, 标出 μ_opt 与最近点。
+    """
+    rng = np.random.default_rng(1)
+    min_fracs = [0.0, 0.02, 0.05, 0.10, 0.15, 0.20]
+    N = 4000
+
+    def _closest(mf):
+        """采样可行域 {x_i >= mf, sum=1}, 返回 (μ, x, 最接近 μ_opt 的下标)。"""
+        y = rng.dirichlet(np.ones(len(ELEMENTS)), size=N)
+        x = mf + (1.0 - len(ELEMENTS) * mf) * y          # x_i >= mf, sum=1
+        Xc = np.array([list(comp_features(label_from_frac(r)).values()) for r in x])
+        mu = gp.predict(Xc)
+        i = int(np.argmin(np.abs(mu - MU_OPT)))
+        return mu, x, i
+
+    close_mu, close_comp = [], []
+    mu_minfrac = None
+    for mf in min_fracs:
+        mu, x, i = _closest(mf)
+        close_mu.append(mu[i])
+        close_comp.append(label_from_frac(x[i]))
+        if mf == MIN_FRAC:               # 记住 min-frac=MIN_FRAC 的整批采样, 供 (b) 直方图
+            mu_minfrac, i_minfrac = mu, i
+
+    comp0 = close_comp[min_fracs.index(MIN_FRAC)]
+    mu0, i0 = mu_minfrac, i_minfrac
+
+    plt.rcParams.update({
+        "font.family": "sans-serif",
+        "font.sans-serif": ["Arial", "DejaVu Sans"],
+        "font.size": 8, "axes.labelsize": 9, "axes.titlesize": 9,
+        "xtick.labelsize": 8, "ytick.labelsize": 8,
+        "axes.spines.top": False, "axes.spines.right": False,
+        "axes.linewidth": 0.8, "figure.dpi": 300, "savefig.dpi": 300,
+        "savefig.bbox": "tight",
+    })
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(9.4, 4.0))
+
+    # (a) 最接近热中性的 μ vs min-frac
+    ax1.plot(min_fracs, close_mu, "o-", color="#4C72B0", lw=1.2, ms=5)
+    ax1.axhline(MU_OPT, color="0.35", ls=":", lw=0.9)
+    ax1.set_xlabel("min. per-element fraction  (min-frac)")
+    ax1.set_ylabel("closest achievable  μ (eV)")
+    ax1.set_title("(a) best-case μ vs min-frac")
+    for mf, mu, c in [(0.0, close_mu[0], close_comp[0]),
+                      (MIN_FRAC, mu0[i0], comp0)]:
+        ax1.annotate(f"{c}\nμ={mu:.2f}", (mf, mu), xytext=(6, 6),
+                     textcoords="offset points", fontsize=6, color="#4C72B0")
+
+    # (b) min-frac=0.05 的 μ 分布
+    n, _bins, _patches = ax2.hist(mu0, bins=40, color="0.8", edgecolor="0.5", lw=0.3)
+    ymax = float(n.max())
+    ax2.axvline(MU_OPT, color="0.35", ls=":", lw=0.9)
+    ax2.axvline(mu0[i0], color="#C44E52", ls="--", lw=0.9)
+    ax2.annotate(f"closest\n{comp0}\nμ={mu0[i0]:.2f}", (mu0[i0], ymax),
+                 xytext=(0, -6), textcoords="offset points", fontsize=6,
+                 color="#C44E52", ha="center", va="top")
+    ax2.text(MU_OPT - 0.01, ymax * 0.92, "ΔG$_H$*≈0", fontsize=6, color="0.3",
+             rotation=90, va="top", ha="right")
+    ax2.set_xlabel("predicted μ (eV)  at min-frac=0.05")
+    ax2.set_ylabel("count")
+    ax2.set_title("(b) distribution, min-frac = 0.05")
+
+    fig.tight_layout()
+    os.makedirs(FIG_DIR, exist_ok=True)
+    out_png = os.path.join(FIG_DIR, "fig11_thermoneutral_reachability.png")
+    fig.savefig(out_png)
+    plt.close(fig)
+    print(f"图已保存 -> {out_png}")
+    print(f"[Fig 11] min-frac={MIN_FRAC} 约束下最接近热中性的成分: {comp0} "
+          f"(μ={mu0[i0]:.3f} eV, 距 μ_opt 还差 {abs(mu0[i0] - MU_OPT):.3f} eV)")
+
+
 def main():
     df = pd.read_csv(CSV, encoding="utf-8-sig")
     _rows = []
@@ -165,6 +251,8 @@ def main():
     print("\n用法: 把上面成分加进主脚本的 comps 列表(或另起一批)用 MACE 算,",
           "算完把新行追加进 hea_h_adsorption.csv, 再重跑本脚本即为闭环迭代。")
     print(f"[注] 特征维度: {feat_names}")
+
+    reachability_figure(gp)
 
 
 if __name__ == "__main__":
