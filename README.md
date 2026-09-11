@@ -11,7 +11,7 @@ The adsorption energy of H on an alloy surface is a key descriptor for catalytic
 1. **Screens** H adsorption energies `E_ads` on the fcc(111) surface with a MACE-MP-0 machine-learning interatomic potential (fast, near-DFT accuracy for these systems), then
 2. **Learns a cheap surrogate** from the computed data — composition → {mean μ, spread σ} of `E_ads` — and uses **Gaussian-process active learning** to recommend the next composition to compute, closing the loop.
 
-## The four parts
+## The pipeline (five parts)
 
 | # | Script | Role |
 |---|--------|------|
@@ -19,6 +19,9 @@ The adsorption energy of H on an alloy surface is a key descriptor for catalytic
 | 2 | `hea_mu_sigma_model.py` | Aggregate per-composition μ/σ and fit leave-one-composition-out surrogates (GP for μ, random forest for σ) |
 | 3 | `hea_gp_active_learning.py` | Fit a GP on computed compositions and recommend the next composition via lower-confidence-bound acquisition |
 | 4 | `hea_make_figures.py` | Reproduce the paper figures (Fig 1–8), including PCA / pentagon-simplex composition maps |
+| 5 | `hea_formability.py` | Compute synthesizability criteria δ / ΔSmix / Ω / VEC and the formability map (Fig 9) |
+
+`hea_ref_energies.py` is a small helper that computes the per-element fcc-vs-ground-state reference energies once, for the strict mixing-enthalpy (Ω) convention.
 
 ## Headline results (MACE-MP-0, 25 compositions, 2500 site relaxations)
 
@@ -26,6 +29,7 @@ The adsorption energy of H on an alloy surface is a key descriptor for catalytic
 - σ = std of `E_ads`: random forest reaches **R² = 0.68** (after filtering diverged relaxations).
 - **Configurational disorder homogenizes the surface**: pure metals have σ ≈ 0.28 eV, while five-component HEAs drop to σ ≈ 0.12 eV — a non-intuitive, publishable finding.
 - Valence electron concentration (VEC) is the strongest single-element descriptor; active learning naturally recommends Ru-rich compositions (most negative μ).
+- **Synthesizability**: all 20 quinary compositions pass δ ≤ 6.6%, Ω ≥ 1.1, and VEC ≥ 8 (FCC); 18/20 also pass 11 ≤ ΔSmix ≤ 19.5 J/(K·mol). The two failures are the most skewed compositions (e.g. `Ru66Ni14Co7Fe7Cu6`, ΔSmix = 9.1) — a direct activity–formability trade-off, since those same Ru-rich compositions are the most catalytically active.
 
 ## Repository layout
 
@@ -35,9 +39,12 @@ The adsorption energy of H on an alloy surface is a key descriptor for catalytic
 ├── hea_mu_sigma_model.py      # Part 2: composition → μ/σ surrogate
 ├── hea_gp_active_learning.py  # Part 3: GP + LCB active learning
 ├── hea_make_figures.py        # Part 4: figures
+├── hea_formability.py         # Part 5: synthesizability criteria (δ/ΔSmix/Ω/VEC) + Fig 9
+├── hea_ref_energies.py        # helper: per-element fcc-vs-ground-state energies (strict ΔHmix)
 ├── data/
 │   ├── hea_h_adsorption.csv       # per-site E_ads (shipped; regenerate with Part 1)
-│   └── hea_formation_enthalpy.csv # per-composition ΔH_form
+│   ├── hea_formation_enthalpy.csv # per-composition ΔH_form
+│   └── hea_pure_reference.csv     # per-element E_ground / E_fcc / ΔE_struct
 ├── requirements.txt
 └── README.md
 ```
@@ -97,6 +104,13 @@ python hea_make_figures.py
 
 Writes Fig 1–8 to `figures/` at 300 dpi.
 
+### Part 5 — synthesizability assessment
+
+```bash
+python hea_ref_energies.py   # optional but recommended: compute strict-ΔHmix reference energies
+python hea_formability.py    # prints δ/ΔSmix/Ω/VEC + pass/fail, writes figures/fig9_formability.png
+```
+
 ## Data format
 
 `data/hea_h_adsorption.csv` — one row per H adsorption site:
@@ -111,6 +125,24 @@ Writes Fig 1–8 to `figures/` at 300 dpi.
 | `h_height`, `d_xy` | H height / lateral displacement |
 | `E_slab`, `E_slabH` | clean slab / slab+H energies (eV) |
 | `E_ads` | adsorption energy (eV) |
+
+## Synthesizability criteria
+
+`hea_formability.py` computes four classic HEA solid-solution formability indicators for every composition:
+
+| indicator | criterion | meaning |
+|-----------|-----------|---------|
+| atomic size mismatch δ | ≤ 6.6% | small mismatch → solid solution forms |
+| mixing entropy ΔSmix | 11–19.5 J/(K·mol) | enough configurational entropy to stabilise the solid solution |
+| Ω = Tm·ΔSmix / \|ΔHmix\| | ≥ 1.1 | entropy outweighs enthalpy → single-phase solid solution |
+| VEC | ≥ 8 (FCC), < 6.87 (BCC) | predicted crystal structure |
+
+δ, ΔSmix, and VEC are pure composition properties (molar fractions + tabulated radii / melting points / VEC). Ω additionally needs the mixing enthalpy ΔHmix, reported in two conventions:
+
+- **proxy**: `|dH_form|` from `data/hea_formation_enthalpy.csv` (MACE, referenced to the elemental ground states hcp-Ru/Co, bcc-Fe).
+- **strict**: referenced to the *same fcc lattice* (the standard mixing-enthalpy convention). This needs the per-element structural term `ΔE_struct = E_ground − E_fcc`, computed once by `hea_ref_energies.py` → `data/hea_pure_reference.csv`; `hea_formability.py` picks it up automatically.
+
+> Caveat: when ΔHmix → 0 (near-ideal solid solution) Ω diverges and its *absolute* value is not meaningful — MACE's mixing-enthalpy has limited absolute accuracy. The qualitative conclusion (Ω ≥ 1.1) is robust; validate ΔHmix against Miedema/CALPHAD/DFT before publication.
 
 ## Caveats
 
